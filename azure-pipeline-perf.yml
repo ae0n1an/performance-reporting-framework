@@ -1,0 +1,219 @@
+# azure-pipeline-perf.yml
+# ─────────────────────────────────────────────
+# Attach this as a stage in your existing pipeline.
+# Triggers LRE, waits for completion, exports CSV,
+# ingests results, gates on SLA.
+# ─────────────────────────────────────────────
+
+parameters:
+  - name: testDefId
+    displayName: Postgres test_definition_id (UUID)
+    type: string
+  - name: lreScenarioId
+    displayName: LRE Scenario ID
+    type: string
+  - name: vusers
+    displayName: Virtual user count
+    type: number
+    default: 100
+  - name: failOnSla
+    displayName: Fail pipeline on SLA breach
+    type: boolean
+    default: true
+
+stages:
+  - stage: PerformanceTest
+    displayName: Performance test
+    jobs:
+      - job: RunAndIngest
+        displayName: Run LRE + ingest results
+        timeoutInMinutes: 180   # hard ceiling so agent isn't stranded
+        pool:
+          vmImage: ubuntu-latest
+
+        steps:
+          # ── Python setup ───────────────────────────────────
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: "3.11"
+
+          - script: |
+              pip install influxdb-client psycopg2-binary python-dotenv requests
+            displayName: Install dependencies
+
+          # ── Trigger LRE run ────────────────────────────────
+          - task: PythonScript@0
+            name: TriggerLRE
+            displayName: Trigger LRE scenario
+            inputs:
+              scriptSource: inline
+              script: |
+                import requests, os, json, sys
+
+                LRE_HOST     = os.environ["LRE_HOST"]
+                LRE_USER     = os.environ["LRE_USER"]
+                LRE_PASSWORD = os.environ["LRE_PASSWORD"]
+                LRE_DOMAIN   = os.environ.get("LRE_DOMAIN", "DEFAULT")
+                LRE_PROJECT  = os.environ["LRE_PROJECT"]
+                SCENARIO_ID  = "${{ parameters.lreScenarioId }}"
+
+                session = requests.Session()
+
+                # Authenticate
+                auth = session.post(
+                    f"{LRE_HOST}/rest/domains/{LRE_DOMAIN}/projects/{LRE_PROJECT}/rest/infrastructure/settings",
+                    auth=(LRE_USER, LRE_PASSWORD)
+                )
+                if auth.status_code not in (200, 201):
+                    print(f"Auth failed: {auth.status_code}")
+                    sys.exit(1)
+
+                # Trigger run
+                resp = session.post(
+                    f"{LRE_HOST}/LoadTest/rest/domains/{LRE_DOMAIN}/projects/{LRE_PROJECT}"
+                    f"/Runs",
+                    json={"TestID": SCENARIO_ID, "NumberOfVusers": ${{ parameters.vusers }}}
+                )
+                resp.raise_for_status()
+                run_id = resp.json().get("ID") or resp.json().get("id")
+                print(f"LRE Run ID: {run_id}")
+
+                # Pass to subsequent steps via pipeline variable
+                print(f"##vso[task.setvariable variable=LRE_RUN_ID;isOutput=true]{run_id}")
+            env:
+              LRE_HOST:     $(LRE_HOST)
+              LRE_USER:     $(LRE_USER)
+              LRE_PASSWORD: $(LRE_PASSWORD)
+              LRE_PROJECT:  $(LRE_PROJECT)
+
+          # ── Poll for completion ────────────────────────────
+          - task: PythonScript@0
+            displayName: Wait for LRE run to complete
+            inputs:
+              scriptSource: inline
+              script: |
+                import requests, os, time, sys
+
+                LRE_HOST    = os.environ["LRE_HOST"]
+                LRE_USER    = os.environ["LRE_USER"]
+                LRE_PASSWORD= os.environ["LRE_PASSWORD"]
+                LRE_DOMAIN  = os.environ.get("LRE_DOMAIN", "DEFAULT")
+                LRE_PROJECT = os.environ["LRE_PROJECT"]
+                RUN_ID      = os.environ["LRE_RUN_ID"]
+                TIMEOUT_MIN = int(os.environ.get("LRE_POLL_TIMEOUT_MINUTES", "120"))
+
+                TERMINAL_STATES = {"Finished", "Failed", "Stopped", "Error"}
+                deadline = time.time() + TIMEOUT_MIN * 60
+                poll_interval = 30
+
+                session = requests.Session()
+                session.auth = (LRE_USER, LRE_PASSWORD)
+
+                while time.time() < deadline:
+                    resp = session.get(
+                        f"{LRE_HOST}/LoadTest/rest/domains/{LRE_DOMAIN}/projects/{LRE_PROJECT}"
+                        f"/Runs/{RUN_ID}"
+                    )
+                    if resp.status_code == 200:
+                        state = resp.json().get("State", "")
+                        print(f"  Run state: {state}")
+                        if state in TERMINAL_STATES:
+                            if state == "Finished":
+                                print("  Run completed successfully.")
+                                sys.exit(0)
+                            else:
+                                print(f"  Run ended in non-success state: {state}")
+                                sys.exit(1)
+                    else:
+                        print(f"  Poll response: {resp.status_code} — continuing")
+                    time.sleep(poll_interval)
+
+                print(f"  Timeout after {TIMEOUT_MIN} minutes. Marking as failed.")
+                sys.exit(1)
+            env:
+              LRE_HOST:     $(LRE_HOST)
+              LRE_USER:     $(LRE_USER)
+              LRE_PASSWORD: $(LRE_PASSWORD)
+              LRE_PROJECT:  $(LRE_PROJECT)
+              LRE_RUN_ID:   $(TriggerLRE.LRE_RUN_ID)
+
+          # ── Export CSV from LRE ────────────────────────────
+          - task: PythonScript@0
+            displayName: Export results CSV from LRE
+            inputs:
+              scriptSource: inline
+              script: |
+                import requests, os, sys, time
+
+                LRE_HOST    = os.environ["LRE_HOST"]
+                LRE_USER    = os.environ["LRE_USER"]
+                LRE_PASSWORD= os.environ["LRE_PASSWORD"]
+                LRE_DOMAIN  = os.environ.get("LRE_DOMAIN", "DEFAULT")
+                LRE_PROJECT = os.environ["LRE_PROJECT"]
+                RUN_ID      = os.environ["LRE_RUN_ID"]
+
+                session = requests.Session()
+                session.auth = (LRE_USER, LRE_PASSWORD)
+
+                # Allow LRE a moment to finalise the run artefacts
+                time.sleep(15)
+
+                # Attempt CSV export — endpoint varies by LRE version
+                csv_url = (
+                    f"{LRE_HOST}/LoadTest/rest/domains/{LRE_DOMAIN}/projects/{LRE_PROJECT}"
+                    f"/Runs/{RUN_ID}/Results/transactions-report?format=csv"
+                )
+                resp = session.get(csv_url)
+
+                if resp.status_code == 200 and len(resp.content) > 512:
+                    with open("lre_results.csv", "wb") as f:
+                        f.write(resp.content)
+                    print(f"  CSV exported: {len(resp.content)} bytes")
+                    # Flag MDB status — approximate check via run metadata
+                    print("##vso[task.setvariable variable=CSV_AVAILABLE]true")
+                else:
+                    print(f"  ⚠ CSV export failed or empty ({resp.status_code}). "
+                          "Will ingest as data_missing.")
+                    # Write empty file so ingest script can handle gracefully
+                    open("lre_results.csv", "w").close()
+                    print("##vso[task.setvariable variable=CSV_AVAILABLE]false")
+            env:
+              LRE_HOST:     $(LRE_HOST)
+              LRE_USER:     $(LRE_USER)
+              LRE_PASSWORD: $(LRE_PASSWORD)
+              LRE_PROJECT:  $(LRE_PROJECT)
+              LRE_RUN_ID:   $(TriggerLRE.LRE_RUN_ID)
+
+          # ── Ingest into InfluxDB + Postgres ────────────────
+          - task: PythonScript@0
+            displayName: Ingest results
+            inputs:
+              scriptPath: perf_ingest.py
+              arguments: >
+                lre
+                --csv-path      lre_results.csv
+                --test-def-id   ${{ parameters.testDefId }}
+                --lre-run-id    $(TriggerLRE.LRE_RUN_ID)
+                --vusers        ${{ parameters.vusers }}
+                --build-id      $(Build.BuildId)
+                --pipeline-name "$(Build.DefinitionName)"
+                --git-branch    $(Build.SourceBranchName)
+                --git-commit    $(Build.SourceVersion)
+                --triggered-by  ci
+                ${{ if parameters.failOnSla }}--fail-on-sla${{ end }}
+            env:
+              INFLUX_URL:       $(INFLUX_URL)
+              INFLUX_TOKEN:     $(INFLUX_TOKEN)
+              INFLUX_ORG:       $(INFLUX_ORG)
+              INFLUX_BUCKET:    $(INFLUX_BUCKET)
+              POSTGRES_HOST:    $(POSTGRES_HOST)
+              POSTGRES_USER:    $(POSTGRES_USER)
+              POSTGRES_PASSWORD:$(POSTGRES_PASSWORD)
+              POSTGRES_DB:      $(POSTGRES_DB)
+
+          # ── Publish CSV as pipeline artefact ──────────────
+          - task: PublishPipelineArtifact@1
+            condition: always()
+            inputs:
+              targetPath: lre_results.csv
+              artifact:   lre-results-csv

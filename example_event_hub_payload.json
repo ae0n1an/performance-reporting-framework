@@ -1,0 +1,42 @@
+{
+  "_comment": "Example payload schema for Event Hub / generic sources. POST this to perf_ingest.py generic --payload this_file.json",
+  "event_type": "run_completed",
+  "run": {
+    "build_id": "12345",
+    "pipeline_name": "Auth Service Perf",
+    "git_branch": "main",
+    "vuser_count": 50
+  },
+  "transactions": [
+    {
+      "transaction_name": "Login",
+      "avg_ms": 312.4,
+      "min_ms": 210.0,
+      "max_ms": 1540.0,
+      "p50_ms": 298.0,
+      "p75_ms": 340.0,
+      "p90_ms": 450.0,
+      "p95_ms": 620.0,
+      "p99_ms": 980.0,
+      "stddev_ms": 88.2,
+      "total_hits": 5400,
+      "hits_per_second": 18.0,
+      "error_count": 12,
+      "error_rate_pct": 0.22
+    },
+    {
+      "transaction_name": "Token refresh",
+      "avg_ms": 88.5,
+      "min_ms": 60.0,
+      "max_ms": 410.0,
+      "p50_ms": 82.0,
+      "p90_ms": 140.0,
+      "p95_ms": 185.0,
+      "p99_ms": 310.0,
+      "total_hits": 10800,
+      "hits_per_second": 36.0,
+      "error_count": 0,
+      "error_rate_pct": 0.0
+    }
+  ]
+}

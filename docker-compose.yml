@@ -1,0 +1,92 @@
+version: "3.9"
+
+# ──────────────────────────────────────────────
+#  Performance Results Stack
+#  InfluxDB 2  — time-series metrics
+#  PostgreSQL  — run registry & SLA definitions
+#  Grafana     — dashboards (reads both)
+# ──────────────────────────────────────────────
+
+services:
+
+  # ── InfluxDB 2 ──────────────────────────────
+  influxdb:
+    image: influxdb:2.7
+    container_name: perf_influxdb
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE:        setup
+      DOCKER_INFLUXDB_INIT_USERNAME:    ${INFLUX_USER:-admin}
+      DOCKER_INFLUXDB_INIT_PASSWORD:    ${INFLUX_PASSWORD:-changeme123}
+      DOCKER_INFLUXDB_INIT_ORG:         ${INFLUX_ORG:-perf-org}
+      DOCKER_INFLUXDB_INIT_BUCKET:      ${INFLUX_BUCKET:-perf-results}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUX_TOKEN:-my-super-secret-token}
+      DOCKER_INFLUXDB_INIT_RETENTION:   ${INFLUX_RETENTION:-8760h}   # 1 year
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+      - influxdb_config:/etc/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── PostgreSQL ───────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: perf_postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-perfuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme123}
+      POSTGRES_DB:       ${POSTGRES_DB:-perfdb}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d   # runs once on first start
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-perfuser} -d ${POSTGRES_DB:-perfdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Grafana ──────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: perf_grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      influxdb:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER:     ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-changeme123}
+      GF_INSTALL_PLUGINS:         grafana-clock-panel,grafana-simple-json-datasource
+      # Feed secrets to provisioning files via env
+      INFLUX_TOKEN:               ${INFLUX_TOKEN:-my-super-secret-token}
+      INFLUX_ORG:                 ${INFLUX_ORG:-perf-org}
+      INFLUX_BUCKET:              ${INFLUX_BUCKET:-perf-results}
+      POSTGRES_USER:              ${POSTGRES_USER:-perfuser}
+      POSTGRES_PASSWORD:          ${POSTGRES_PASSWORD:-changeme123}
+      POSTGRES_DB:                ${POSTGRES_DB:-perfdb}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  influxdb_data:
+  influxdb_config:
+  postgres_data:
+  grafana_data:
