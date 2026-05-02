@@ -1,0 +1,15 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir psycopg_pool
+
+# Source is mounted as a volume — no COPY needed
+# Migrations run on startup, then flask dev server with hot reload
+CMD ["sh", "-c", "python -m app.db.migrate && flask run --host 0.0.0.0 --port 8000 --debug"]

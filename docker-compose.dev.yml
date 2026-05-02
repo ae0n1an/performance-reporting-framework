@@ -7,7 +7,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secret}
       POSTGRES_DB: ${POSTGRES_DB:-loadrunner}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_dev:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-5432}:5432"   # expose to host so you can use psql / DBeaver
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-loadrunner}"]
       interval: 5s
@@ -17,18 +19,23 @@ services:
   app:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
     environment:
+      FLASK_APP: wsgi
+      FLASK_ENV: development
       DATABASE_URL: postgresql://${POSTGRES_USER:-loadrunner}:${POSTGRES_PASSWORD:-secret}@db:5432/${POSTGRES_DB:-loadrunner}
-      SECRET_KEY: ${SECRET_KEY:-change-me-in-production}
-      DB_POOL_MIN: ${DB_POOL_MIN:-2}
-      DB_POOL_MAX: ${DB_POOL_MAX:-10}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret}
+      DB_POOL_MIN: 1
+      DB_POOL_MAX: 5
     ports:
       - "${APP_PORT:-8000}:8000"
+    volumes:
+      - .:/app                   # mount source for hot reload
+      - /app/__pycache__         # exclude pycache from mount
 
 volumes:
-  postgres_data:
+  postgres_data_dev:
