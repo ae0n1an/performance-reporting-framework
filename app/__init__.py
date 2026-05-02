@@ -32,12 +32,10 @@ def create_app(config: dict | None = None):
     from app.routes.tests import bp as tests_bp
     from app.routes.test_runs import bp as runs_bp
     from app.routes.transactions import bp as transactions_bp
-    from app.routes.messages import bp as messages_bp
 
     app.register_blueprint(projects_bp,     url_prefix="/api/projects")
     app.register_blueprint(tests_bp,        url_prefix="/api/tests")
     app.register_blueprint(runs_bp,         url_prefix="/api/runs")
     app.register_blueprint(transactions_bp, url_prefix="/api/transactions")
-    app.register_blueprint(messages_bp,     url_prefix="/api/messages")
 
     return app

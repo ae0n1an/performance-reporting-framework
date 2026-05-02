@@ -10,9 +10,11 @@ bp = Blueprint("transactions", __name__)
 @bp.get("/")
 def list_transactions():
     page, per_page, offset = get_page_params()
-    run_id = request.args.get("run_id")
-    name = request.args.get("name")
-    status = request.args.get("status")
+    run_id         = request.args.get("run_id")
+    name           = request.args.get("name")
+    status         = request.args.get("status")
+    kind           = request.args.get("kind")
+    correlation_id = request.args.get("correlation_id")
 
     where_parts, params = [], []
     if run_id:
@@ -21,6 +23,11 @@ def list_transactions():
         where_parts.append("name = %s"); params.append(name)
     if status:
         where_parts.append("status = %s"); params.append(status)
+    if kind:
+        where_parts.append("kind = %s"); params.append(kind)
+    if correlation_id:
+        where_parts.append("(start_correlation_id = %s OR end_correlation_id = %s)")
+        params.extend([correlation_id, correlation_id])
 
     where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
@@ -38,14 +45,17 @@ def list_transactions():
 
 @bp.post("/")
 def create_transaction():
-    body = request.get_json() or {}
+    body   = request.get_json() or {}
     run_id = body.get("run_id", "").strip()
-    name = body.get("name", "").strip()
-    start_time = body.get("start_time")
+    name   = body.get("name", "").strip()
+    kind   = body.get("kind", "transaction")
 
-    if not run_id:   return error("run_id is required")
-    if not name:     return error("name is required")
-    if not start_time: return error("start_time is required")
+    if not run_id: return error("run_id is required")
+    if not name:   return error("name is required")
+    if kind not in ("transaction", "message"):
+        return error("kind must be 'transaction' or 'message'")
+    if not body.get("start_time"):
+        return error("start_time is required")
 
     with get_conn() as conn:
         if not conn.execute("SELECT id FROM test_runs WHERE id = %s", (run_id,)).fetchone():
@@ -54,17 +64,25 @@ def create_transaction():
         row = conn.execute(
             """
             INSERT INTO transactions
-              (run_id, name, status, start_time, end_time, duration_ms,
+              (run_id, kind, name, status, start_time, end_time, duration_ms,
+               start_correlation_id, end_correlation_id,
+               topic, payload, source, acknowledged_at,
                vuser_id, iteration, error_message, extra)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING *
             """,
             (
-                run_id, name,
+                run_id, kind, name,
                 body.get("status", "pass"),
-                start_time,
+                body.get("start_time"),
                 body.get("end_time"),
                 body.get("duration_ms"),
+                body.get("start_correlation_id"),
+                body.get("end_correlation_id"),
+                body.get("topic"),
+                json.dumps(body.get("payload", {})),
+                body.get("source"),
+                body.get("acknowledged_at"),
                 body.get("vuser_id"),
                 body.get("iteration", 1),
                 body.get("error_message"),
@@ -78,14 +96,12 @@ def create_transaction():
 @bp.post("/bulk")
 def bulk_create_transactions():
     """Ingest many transactions at once — useful for batch reporting at run end."""
-    body = request.get_json() or {}
+    body   = request.get_json() or {}
     run_id = body.get("run_id", "").strip()
-    items = body.get("transactions", [])
+    items  = body.get("transactions", [])
 
-    if not run_id:
-        return error("run_id is required")
-    if not items:
-        return error("transactions list is empty")
+    if not run_id: return error("run_id is required")
+    if not items:  return error("transactions list is empty")
 
     with get_conn() as conn:
         if not conn.execute("SELECT id FROM test_runs WHERE id = %s", (run_id,)).fetchone():
@@ -94,25 +110,36 @@ def bulk_create_transactions():
         ids = []
         for i, item in enumerate(items):
             name = item.get("name", "").strip()
+            kind = item.get("kind", "transaction")
             if not name:
                 return error(f"item[{i}]: name is required")
             if not item.get("start_time"):
                 return error(f"item[{i}]: start_time is required")
+            if kind not in ("transaction", "message"):
+                return error(f"item[{i}]: kind must be 'transaction' or 'message'")
 
             row = conn.execute(
                 """
                 INSERT INTO transactions
-                  (run_id, name, status, start_time, end_time, duration_ms,
+                  (run_id, kind, name, status, start_time, end_time, duration_ms,
+                   start_correlation_id, end_correlation_id,
+                   topic, payload, source, acknowledged_at,
                    vuser_id, iteration, error_message, extra)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
-                    run_id, name,
+                    run_id, kind, name,
                     item.get("status", "pass"),
-                    item["start_time"],
+                    item.get("start_time"),
                     item.get("end_time"),
                     item.get("duration_ms"),
+                    item.get("start_correlation_id"),
+                    item.get("end_correlation_id"),
+                    item.get("topic"),
+                    json.dumps(item.get("payload", {})),
+                    item.get("source"),
+                    item.get("acknowledged_at"),
                     item.get("vuser_id"),
                     item.get("iteration", 1),
                     item.get("error_message"),
@@ -124,16 +151,17 @@ def bulk_create_transactions():
     return created({"created": len(ids), "ids": ids})
 
 
-@bp.get("/by-correlation/<correlation_id>")
-def get_by_correlation(correlation_id):
+@bp.get("/trace/<correlation_id>")
+def trace_correlation(correlation_id):
+    """All transactions whose start or end boundary carries this correlation ID."""
     with get_conn() as conn:
         rows = conn.execute(
             """
-            SELECT t.* FROM transactions t
-            JOIN correlation_links cl ON cl.transaction_id = t.id
-            WHERE cl.correlation_id = %s
+            SELECT * FROM transactions
+            WHERE start_correlation_id = %s OR end_correlation_id = %s
+            ORDER BY start_time
             """,
-            (correlation_id,)
+            (correlation_id, correlation_id)
         ).fetchall()
     return ok([dict(r) for r in rows])
 
@@ -154,6 +182,31 @@ def get_transaction(tx_id):
     result = dict(tx)
     result["steps"] = [dict(s) for s in steps]
     return ok(result)
+
+
+@bp.patch("/<tx_id>")
+def update_transaction(tx_id):
+    body    = request.get_json() or {}
+    allowed = {
+        "status", "end_time", "duration_ms", "error_message",
+        "start_correlation_id", "end_correlation_id", "acknowledged_at",
+    }
+    updates = {k: v for k, v in body.items() if k in allowed}
+
+    if not updates:
+        return error("no updatable fields provided")
+
+    set_clause = ", ".join(f"{k} = %s" for k in updates)
+    params     = list(updates.values()) + [tx_id]
+
+    with get_conn() as conn:
+        row = conn.execute(
+            f"UPDATE transactions SET {set_clause} WHERE id = %s RETURNING *",
+            params
+        ).fetchone()
+    if not row:
+        return not_found("Transaction")
+    return ok(dict(row))
 
 
 @bp.post("/<tx_id>/steps")

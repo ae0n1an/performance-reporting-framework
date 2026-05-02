@@ -89,34 +89,48 @@ def test_transaction_and_correlation_trace(client):
     t = make_test(client, p["id"])
     run = make_run(client, t["id"])
 
-    # Record a transaction
+    # Producer transaction: fires correlation ID at its end boundary
     r = client.post("/api/transactions/", *_j({
         "run_id": run["id"],
         "name": "checkout",
         "status": "pass",
         "start_time": _now(),
         "duration_ms": 320,
+        "end_correlation_id": "order-99",
     }))
     assert r.status_code == 201
-    tx_id = r.get_json()["data"]["id"]
+    producer_id = r.get_json()["data"]["id"]
 
-    # Fire a message auto-linked to the transaction
-    r = client.post("/api/messages/", *_j({
+    # Message transaction: fired with this correlation ID
+    r = client.post("/api/transactions/", *_j({
         "run_id": run["id"],
-        "correlation_id": "order-99",
+        "kind": "message",
+        "name": "orders.placed",
+        "start_time": _now(),
+        "start_correlation_id": "order-99",
         "topic": "orders.placed",
         "payload": {"order_id": 99},
-        "transaction_id": tx_id,
     }))
     assert r.status_code == 201
 
-    # Full trace
-    r = client.get("/api/messages/trace/order-99")
+    # Consumer transaction: picks up the correlation ID at its start boundary
+    r = client.post("/api/transactions/", *_j({
+        "run_id": run["id"],
+        "name": "process-order",
+        "start_time": _now(),
+        "start_correlation_id": "order-99",
+    }))
+    assert r.status_code == 201
+    consumer_id = r.get_json()["data"]["id"]
+
+    # Trace returns all three
+    r = client.get("/api/transactions/trace/order-99")
     assert r.status_code == 200
     trace = r.get_json()["data"]
-    assert len(trace["transactions"]) == 1
-    assert trace["transactions"][0]["id"] == tx_id
-    assert len(trace["messages"]) == 1
+    ids = {tx["id"] for tx in trace}
+    assert producer_id in ids
+    assert consumer_id in ids
+    assert len(trace) == 3
 
 
 def test_bulk_transactions(client):

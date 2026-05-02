@@ -58,8 +58,6 @@ def clean_db(app):
         with get_conn() as conn:
             conn.execute("""
                 TRUNCATE TABLE
-                    correlation_links,
-                    fire_and_forget_messages,
                     transaction_steps,
                     transactions,
                     test_runs,
