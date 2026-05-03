@@ -16,3 +16,21 @@ select = [
     "UP",   # pyupgrade — use modern Python syntax
     "I",    # isort — import ordering
 ]
+
+
+[tool.pytest.ini_options]
+addopts = "--cov=app --cov-report=term-missing --cov-report=html --cov-fail-under=80"
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+omit = ["app/db/migrate.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "if __name__ == .__main__.",
+    "raise RuntimeError",
+    "pragma: no cover",
+]
