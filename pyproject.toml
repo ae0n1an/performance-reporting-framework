@@ -20,6 +20,7 @@ select = [
 
 [tool.pytest.ini_options]
 addopts = "--cov=app --cov-report=term-missing --cov-report=html --cov-fail-under=80"
+pythonpath = ["."]
 
 [tool.coverage.run]
 branch = true

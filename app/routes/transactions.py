@@ -126,22 +126,29 @@ def bulk_create_transactions() -> tuple[Response, int]:
     if not items:
         return error("transactions list is empty")
 
+    # Validate all items before touching the database so a bad item[N]
+    # cannot leave items 0..N-1 committed with no way to roll them back.
+    validated: list[dict[str, object]] = []
+    for i, item_raw in enumerate(items):
+        item: dict[str, object] = item_raw if isinstance(item_raw, dict) else {}
+        name = str(item.get("name", "")).strip()
+        kind = str(item.get("kind", "transaction"))
+        if not name:
+            return error(f"item[{i}]: name is required")
+        if not item.get("start_time"):
+            return error(f"item[{i}]: start_time is required")
+        if kind not in ("transaction", "message"):
+            return error(f"item[{i}]: kind must be 'transaction' or 'message'")
+        validated.append(item)
+
     with get_conn() as conn:
         if not conn.execute("SELECT id FROM test_runs WHERE id = %s", (run_id,)).fetchone():
             return not_found("TestRun")
 
         ids: list[str] = []
-        for i, item_raw in enumerate(items):
-            item: dict[str, object] = item_raw if isinstance(item_raw, dict) else {}
+        for item in validated:
             name = str(item.get("name", "")).strip()
             kind = str(item.get("kind", "transaction"))
-            if not name:
-                return error(f"item[{i}]: name is required")
-            if not item.get("start_time"):
-                return error(f"item[{i}]: start_time is required")
-            if kind not in ("transaction", "message"):
-                return error(f"item[{i}]: kind must be 'transaction' or 'message'")
-
             duration_raw = item.get("duration_ms")
             duration_ms  = duration_raw if isinstance(duration_raw, int) else None
             iteration_raw = item.get("iteration")

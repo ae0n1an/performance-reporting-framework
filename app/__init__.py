@@ -28,11 +28,13 @@ def create_app(config: dict[str, object] | None = None) -> Flask:
     def shutdown(_: BaseException | None) -> None:
         pass  # pool is closed on app close below
 
+    from app.routes.health import bp as health_bp
     from app.routes.projects import bp as projects_bp
     from app.routes.test_runs import bp as runs_bp
     from app.routes.tests import bp as tests_bp
     from app.routes.transactions import bp as transactions_bp
 
+    app.register_blueprint(health_bp,       url_prefix="/api/health")
     app.register_blueprint(projects_bp,     url_prefix="/api/projects")
     app.register_blueprint(tests_bp,        url_prefix="/api/tests")
     app.register_blueprint(runs_bp,         url_prefix="/api/runs")

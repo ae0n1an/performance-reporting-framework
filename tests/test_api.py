@@ -1,43 +1,10 @@
-from datetime import UTC, datetime
-from typing import cast
+"""End-to-end workflow tests covering the happy path across all resources."""
 
 from flask.testing import FlaskClient
 
+from tests.helpers import _j, _now, make_project, make_run, make_test
 
-def _j(body: object) -> dict[str, object]:
-    return {"json": body}
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
-
-
-# ── helpers ──────────────────────────────────────────────────────────────────
-
-def make_project(
-    client: FlaskClient, name: str = "Test Co", slug: str | None = None
-) -> dict[str, object]:
-    slug = slug or name.lower().replace(" ", "-")
-    r = client.post("/api/projects/", **_j({"name": name, "slug": slug}))
-    assert r.status_code == 201
-    return cast(dict[str, object], r.get_json()["data"])
-
-
-def make_test(
-    client: FlaskClient, project_id: str, name: str = "Checkout Flow"
-) -> dict[str, object]:
-    r = client.post("/api/tests/", **_j({"project_id": project_id, "name": name}))
-    assert r.status_code == 201
-    return cast(dict[str, object], r.get_json()["data"])
-
-
-def make_run(client: FlaskClient, test_id: str) -> dict[str, object]:
-    r = client.post("/api/runs/", **_j({"test_id": test_id}))
-    assert r.status_code == 201
-    return cast(dict[str, object], r.get_json()["data"])
-
-
-# ── project tests ─────────────────────────────────────────────────────────────
+# ── project CRUD ──────────────────────────────────────────────────────────────
 
 def test_create_and_get_project(client: FlaskClient) -> None:
     p = make_project(client, "My Project", "my-project")
@@ -79,7 +46,6 @@ def test_run_lifecycle(client: FlaskClient) -> None:
     r = client.post(f"/api/runs/{run['id']}/start")
     assert r.get_json()["data"]["status"] == "running"
 
-    # Can't start twice
     r = client.post(f"/api/runs/{run['id']}/start")
     assert r.status_code == 400
 
@@ -95,7 +61,6 @@ def test_transaction_and_correlation_trace(client: FlaskClient) -> None:
     t = make_test(client, str(p["id"]))
     run = make_run(client, str(t["id"]))
 
-    # Producer transaction: fires correlation ID at its end boundary
     r = client.post("/api/transactions/", **_j({
         "run_id": run["id"],
         "name": "checkout",
@@ -107,7 +72,6 @@ def test_transaction_and_correlation_trace(client: FlaskClient) -> None:
     assert r.status_code == 201
     producer_id = r.get_json()["data"]["id"]
 
-    # Message transaction: fired with this correlation ID
     r = client.post("/api/transactions/", **_j({
         "run_id": run["id"],
         "kind": "message",
@@ -119,7 +83,6 @@ def test_transaction_and_correlation_trace(client: FlaskClient) -> None:
     }))
     assert r.status_code == 201
 
-    # Consumer transaction: picks up the correlation ID at its start boundary
     r = client.post("/api/transactions/", **_j({
         "run_id": run["id"],
         "name": "process-order",
@@ -129,7 +92,6 @@ def test_transaction_and_correlation_trace(client: FlaskClient) -> None:
     assert r.status_code == 201
     consumer_id = r.get_json()["data"]["id"]
 
-    # Trace returns all three
     r = client.get("/api/transactions/trace/order-99")
     assert r.status_code == 200
     trace = r.get_json()["data"]
