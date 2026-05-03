@@ -11,17 +11,19 @@ Usage in routes:
         rows = conn.execute("SELECT * FROM projects").fetchall()
 """
 
-import os
+from collections.abc import Generator
 from contextlib import contextmanager
 
-import psycopg
-from psycopg.rows import dict_row
+from psycopg import Connection
+from psycopg.rows import DictRow, dict_row
 from psycopg_pool import ConnectionPool
 
-_pool: ConnectionPool | None = None
+Row = DictRow  # dict[str, Any] at runtime; treated as dict[str, object] for type safety
+
+_pool: ConnectionPool[Connection[Row]] | None = None
 
 
-def init_pool(dsn: str, min_size: int = 2, max_size: int = 10):
+def init_pool(dsn: str, min_size: int = 2, max_size: int = 10) -> None:
     global _pool
     _pool = ConnectionPool(
         dsn,
@@ -31,7 +33,7 @@ def init_pool(dsn: str, min_size: int = 2, max_size: int = 10):
     )
 
 
-def close_pool():
+def close_pool() -> None:
     global _pool
     if _pool:
         _pool.close()
@@ -39,7 +41,7 @@ def close_pool():
 
 
 @contextmanager
-def get_conn():
+def get_conn() -> Generator[Connection[Row], None, None]:
     """Yield a connection from the pool. Commits on clean exit, rolls back on error."""
     if _pool is None:
         raise RuntimeError("Database pool not initialised. Call init_pool() first.")

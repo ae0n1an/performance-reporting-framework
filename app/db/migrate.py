@@ -12,26 +12,32 @@ Usage:
   python -m app.db.migrate --status   # show applied / pending
 """
 
+import hashlib
 import os
 import re
 import sys
-import hashlib
 from pathlib import Path
-from datetime import datetime, timezone
+from typing import TypedDict
 
 import psycopg
-from psycopg.rows import dict_row
-
+from psycopg.rows import DictRow, dict_row
 
 MIGRATIONS_DIR = Path(__file__).parent.parent.parent / "migrations"
 MIGRATION_PATTERN = re.compile(r"^V(\d+)__(.+)\.sql$")
 
 
-def get_conn(dsn: str):
+class MigrationFile(TypedDict):
+    version: int
+    name: str
+    filename: str
+    path: Path
+
+
+def get_conn(dsn: str) -> psycopg.Connection[DictRow]:
     return psycopg.connect(dsn, row_factory=dict_row)
 
 
-def ensure_migrations_table(conn):
+def ensure_migrations_table(conn: psycopg.Connection[DictRow]) -> None:
     conn.execute("""
         CREATE TABLE IF NOT EXISTS schema_migrations (
             version     INTEGER PRIMARY KEY,
@@ -43,17 +49,17 @@ def ensure_migrations_table(conn):
     conn.commit()
 
 
-def load_migration_files():
-    files = []
+def load_migration_files() -> list[MigrationFile]:
+    files: list[MigrationFile] = []
     for f in sorted(MIGRATIONS_DIR.glob("V*.sql")):
         m = MIGRATION_PATTERN.match(f.name)
         if m:
-            files.append({
-                "version": int(m.group(1)),
-                "name": m.group(2),
-                "filename": f.name,
-                "path": f,
-            })
+            files.append(MigrationFile(
+                version=int(m.group(1)),
+                name=m.group(2),
+                filename=f.name,
+                path=f,
+            ))
     return files
 
 
@@ -61,12 +67,14 @@ def checksum(sql: str) -> str:
     return hashlib.sha256(sql.encode()).hexdigest()[:16]
 
 
-def get_applied(conn):
-    rows = conn.execute("SELECT version, checksum FROM schema_migrations ORDER BY version").fetchall()
-    return {r["version"]: r["checksum"] for r in rows}
+def get_applied(conn: psycopg.Connection[DictRow]) -> dict[int, str]:
+    rows = conn.execute(
+        "SELECT version, checksum FROM schema_migrations ORDER BY version"
+    ).fetchall()
+    return {int(r["version"]): str(r["checksum"]) for r in rows}
 
 
-def apply(dsn: str):
+def apply(dsn: str) -> None:
     files = load_migration_files()
     if not files:
         print("No migration files found.")
@@ -89,7 +97,7 @@ def apply(dsn: str):
                 conn.execute(sql)
                 conn.execute(
                     "INSERT INTO schema_migrations (version, name, checksum) VALUES (%s, %s, %s)",
-                    (mig["version"], mig["name"], cs)
+                    (mig["version"], mig["name"], cs),
                 )
                 conn.commit()
                 print("ok")
@@ -101,7 +109,7 @@ def apply(dsn: str):
         print(f"\n{len(pending)} migration(s) applied.")
 
 
-def status(dsn: str):
+def status(dsn: str) -> None:
     files = load_migration_files()
     with get_conn(dsn) as conn:
         ensure_migrations_table(conn)

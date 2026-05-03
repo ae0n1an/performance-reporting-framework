@@ -1,8 +1,9 @@
 import json
-from flask import Blueprint, request
+
+from flask import Blueprint, Response, request
 
 from app.db import get_conn
-from app.utils import ok, created, error, not_found, get_page_params, paginated
+from app.utils import created, error, get_page_params, not_found, ok, paginated
 
 bp = Blueprint("test_runs", __name__)
 
@@ -10,13 +11,13 @@ VALID_FINISH_STATUSES = ("passed", "failed", "aborted")
 
 
 @bp.get("/")
-def list_runs():
+def list_runs() -> tuple[Response, int]:
     page, per_page, offset = get_page_params()
     test_id = request.args.get("test_id")
     status = request.args.get("status")
 
-    where_parts = []
-    params = []
+    where_parts: list[str] = []
+    params: list[object] = []
     if test_id:
         where_parts.append("test_id = %s")
         params.append(test_id)
@@ -27,23 +28,28 @@ def list_runs():
     where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
     with get_conn() as conn:
-        total = conn.execute(
+        count_row = conn.execute(
             f"SELECT COUNT(*) AS n FROM test_runs {where}", params
-        ).fetchone()["n"]
+        ).fetchone()
+        assert count_row is not None
+        total = int(count_row["n"])
         rows = conn.execute(
             f"SELECT * FROM test_runs {where} ORDER BY created_at DESC LIMIT %s OFFSET %s",
-            params + [per_page, offset]
+            params + [per_page, offset],
         ).fetchall()
 
     return ok(paginated([dict(r) for r in rows], total, page, per_page))
 
 
 @bp.post("/")
-def create_run():
-    body = request.get_json() or {}
-    test_id = body.get("test_id", "").strip()
+def create_run() -> tuple[Response, int]:
+    body: dict[str, object] = request.get_json(silent=True) or {}
+    test_id = str(body.get("test_id", "")).strip()
     if not test_id:
         return error("test_id is required")
+
+    metadata_raw = body.get("run_metadata")
+    run_metadata = metadata_raw if isinstance(metadata_raw, dict) else {}
 
     with get_conn() as conn:
         if not conn.execute("SELECT id FROM tests WHERE id = %s", (test_id,)).fetchone():
@@ -51,14 +57,15 @@ def create_run():
 
         row = conn.execute(
             "INSERT INTO test_runs (test_id, run_metadata) VALUES (%s, %s) RETURNING *",
-            (test_id, json.dumps(body.get("run_metadata", {})))
+            (test_id, json.dumps(run_metadata)),
         ).fetchone()
+        assert row is not None
 
     return created(dict(row))
 
 
 @bp.get("/<run_id>")
-def get_run(run_id):
+def get_run(run_id: str) -> tuple[Response, int]:
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM test_runs WHERE id = %s", (run_id,)).fetchone()
     if not row:
@@ -67,7 +74,7 @@ def get_run(run_id):
 
 
 @bp.post("/<run_id>/start")
-def start_run(run_id):
+def start_run(run_id: str) -> tuple[Response, int]:
     with get_conn() as conn:
         row = conn.execute(
             """
@@ -76,7 +83,7 @@ def start_run(run_id):
             WHERE id = %s AND status = 'pending'
             RETURNING *
             """,
-            (run_id,)
+            (run_id,),
         ).fetchone()
     if not row:
         existing = _get_run(run_id)
@@ -87,10 +94,10 @@ def start_run(run_id):
 
 
 @bp.post("/<run_id>/finish")
-def finish_run(run_id):
-    body = request.get_json() or {}
-    status = body.get("status", "passed")
-    if status not in VALID_FINISH_STATUSES:
+def finish_run(run_id: str) -> tuple[Response, int]:
+    body: dict[str, object] = request.get_json(silent=True) or {}
+    finish_status = str(body.get("status", "passed"))
+    if finish_status not in VALID_FINISH_STATUSES:
         return error(f"status must be one of: {', '.join(VALID_FINISH_STATUSES)}")
 
     with get_conn() as conn:
@@ -101,7 +108,7 @@ def finish_run(run_id):
             WHERE id = %s AND status = 'running'
             RETURNING *
             """,
-            (status, run_id)
+            (finish_status, run_id),
         ).fetchone()
     if not row:
         existing = _get_run(run_id)
@@ -112,7 +119,7 @@ def finish_run(run_id):
 
 
 @bp.delete("/<run_id>")
-def delete_run(run_id):
+def delete_run(run_id: str) -> tuple[Response, int]:
     with get_conn() as conn:
         row = conn.execute(
             "DELETE FROM test_runs WHERE id = %s RETURNING id", (run_id,)
@@ -122,6 +129,9 @@ def delete_run(run_id):
     return ok({"deleted": str(row["id"])})
 
 
-def _get_run(run_id):
+def _get_run(run_id: str) -> dict[str, object] | None:
     with get_conn() as conn:
-        return conn.execute("SELECT * FROM test_runs WHERE id = %s", (run_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM test_runs WHERE id = %s", (run_id,)
+        ).fetchone()
+    return dict(row) if row else None

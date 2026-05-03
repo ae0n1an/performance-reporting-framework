@@ -1,39 +1,46 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import cast
+
+from flask.testing import FlaskClient
 
 
-def _j(body):
+def _j(body: object) -> tuple[str, dict[str, str]]:
     return json.dumps(body), {"Content-Type": "application/json"}
 
 
-def _now():
-    return datetime.now(timezone.utc).isoformat()
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-def make_project(client, name="Test Co", slug=None):
+def make_project(
+    client: FlaskClient, name: str = "Test Co", slug: str | None = None
+) -> dict[str, object]:
     slug = slug or name.lower().replace(" ", "-")
     r = client.post("/api/projects/", *_j({"name": name, "slug": slug}))
     assert r.status_code == 201
-    return r.get_json()["data"]
+    return cast(dict[str, object], r.get_json()["data"])
 
 
-def make_test(client, project_id, name="Checkout Flow"):
+def make_test(
+    client: FlaskClient, project_id: str, name: str = "Checkout Flow"
+) -> dict[str, object]:
     r = client.post("/api/tests/", *_j({"project_id": project_id, "name": name}))
     assert r.status_code == 201
-    return r.get_json()["data"]
+    return cast(dict[str, object], r.get_json()["data"])
 
 
-def make_run(client, test_id):
+def make_run(client: FlaskClient, test_id: str) -> dict[str, object]:
     r = client.post("/api/runs/", *_j({"test_id": test_id}))
     assert r.status_code == 201
-    return r.get_json()["data"]
+    return cast(dict[str, object], r.get_json()["data"])
 
 
 # ── project tests ─────────────────────────────────────────────────────────────
 
-def test_create_and_get_project(client):
+def test_create_and_get_project(client: FlaskClient) -> None:
     p = make_project(client, "My Project", "my-project")
     assert p["slug"] == "my-project"
 
@@ -42,19 +49,19 @@ def test_create_and_get_project(client):
     assert r.get_json()["data"]["name"] == "My Project"
 
 
-def test_duplicate_slug_rejected(client):
+def test_duplicate_slug_rejected(client: FlaskClient) -> None:
     make_project(client, "Proj A", "proj-a")
     r = client.post("/api/projects/", *_j({"name": "Proj B", "slug": "proj-a"}))
     assert r.status_code == 409
 
 
-def test_update_project(client):
+def test_update_project(client: FlaskClient) -> None:
     p = make_project(client)
     r = client.patch(f"/api/projects/{p['id']}", *_j({"description": "updated"}))
     assert r.get_json()["data"]["description"] == "updated"
 
 
-def test_delete_project(client):
+def test_delete_project(client: FlaskClient) -> None:
     p = make_project(client, "To Delete", "to-delete")
     r = client.delete(f"/api/projects/{p['id']}")
     assert r.status_code == 200
@@ -64,10 +71,10 @@ def test_delete_project(client):
 
 # ── run lifecycle ─────────────────────────────────────────────────────────────
 
-def test_run_lifecycle(client):
+def test_run_lifecycle(client: FlaskClient) -> None:
     p = make_project(client, "Run Co", "run-co")
-    t = make_test(client, p["id"])
-    run = make_run(client, t["id"])
+    t = make_test(client, str(p["id"]))
+    run = make_run(client, str(t["id"]))
     assert run["status"] == "pending"
 
     r = client.post(f"/api/runs/{run['id']}/start")
@@ -84,10 +91,10 @@ def test_run_lifecycle(client):
 
 # ── transactions + correlation ────────────────────────────────────────────────
 
-def test_transaction_and_correlation_trace(client):
+def test_transaction_and_correlation_trace(client: FlaskClient) -> None:
     p = make_project(client, "Trace Co", "trace-co")
-    t = make_test(client, p["id"])
-    run = make_run(client, t["id"])
+    t = make_test(client, str(p["id"]))
+    run = make_run(client, str(t["id"]))
 
     # Producer transaction: fires correlation ID at its end boundary
     r = client.post("/api/transactions/", *_j({
@@ -133,10 +140,10 @@ def test_transaction_and_correlation_trace(client):
     assert len(trace) == 3
 
 
-def test_bulk_transactions(client):
+def test_bulk_transactions(client: FlaskClient) -> None:
     p = make_project(client, "Bulk Co", "bulk-co")
-    t = make_test(client, p["id"])
-    run = make_run(client, t["id"])
+    t = make_test(client, str(p["id"]))
+    run = make_run(client, str(t["id"]))
 
     r = client.post("/api/transactions/bulk", *_j({
         "run_id": run["id"],

@@ -10,21 +10,25 @@ With Docker:
 """
 
 import os
+from collections.abc import Generator
+
 import pytest
 from dotenv import load_dotenv
+from flask import Flask
+from flask.testing import FlaskClient
 
 load_dotenv()
 
 TEST_DSN = os.getenv("TEST_DATABASE_URL", "")
 
 
-def pytest_configure(config):
+def pytest_configure(config: pytest.Config) -> None:
     if not TEST_DSN:
         print("\nWARNING: TEST_DATABASE_URL not set — tests will be skipped.")
 
 
 @pytest.fixture(scope="session")
-def app():
+def app() -> Flask:
     if not TEST_DSN:
         pytest.skip("TEST_DATABASE_URL not set")
 
@@ -45,12 +49,12 @@ def app():
 
 
 @pytest.fixture
-def client(app):
+def client(app: Flask) -> FlaskClient:
     return app.test_client()
 
 
 @pytest.fixture(autouse=True)
-def clean_db(app):
+def clean_db(app: Flask) -> Generator[None, None, None]:
     """Truncate all tables between tests (preserve schema)."""
     yield
     from app.db import get_conn

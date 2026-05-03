@@ -25,6 +25,13 @@ python -m app.db.migrate            # Apply pending migrations
 python -m app.db.migrate --status   # Show status
 ```
 
+**Type checking and linting:**
+```bash
+mypy app          # strict type checking (mypy --strict equivalent)
+ruff check .      # lint + annotation enforcement
+ruff check --fix . # auto-fix safe violations
+```
+
 **Tests (requires running Postgres):**
 ```bash
 docker compose -f docker-compose.dev.yml up db -d

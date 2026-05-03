@@ -1,18 +1,19 @@
 import os
-from flask import Flask
-from dotenv import load_dotenv
 
-from app.db import init_pool, close_pool
+from dotenv import load_dotenv
+from flask import Flask
+
+from app.db import init_pool
 
 load_dotenv()
 
 
-def create_app(config: dict | None = None):
+def create_app(config: dict[str, object] | None = None) -> Flask:
     app = Flask(__name__)
     app.config["DATABASE_URL"] = os.getenv("DATABASE_URL", "")
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "dev-secret")
-    app.config["DB_POOL_MIN"] = int(os.getenv("DB_POOL_MIN", 2))
-    app.config["DB_POOL_MAX"] = int(os.getenv("DB_POOL_MAX", 10))
+    app.config["DB_POOL_MIN"] = int(os.getenv("DB_POOL_MIN", "2"))
+    app.config["DB_POOL_MAX"] = int(os.getenv("DB_POOL_MAX", "10"))
 
     if config:
         app.config.update(config)
@@ -22,15 +23,14 @@ def create_app(config: dict | None = None):
         min_size=app.config["DB_POOL_MIN"],
         max_size=app.config["DB_POOL_MAX"],
     )
-    app.teardown_appcontext(lambda _: None)  # pool lives for app lifetime
 
     @app.teardown_appcontext
-    def shutdown(_):
+    def shutdown(_: BaseException | None) -> None:
         pass  # pool is closed on app close below
 
     from app.routes.projects import bp as projects_bp
-    from app.routes.tests import bp as tests_bp
     from app.routes.test_runs import bp as runs_bp
+    from app.routes.tests import bp as tests_bp
     from app.routes.transactions import bp as transactions_bp
 
     app.register_blueprint(projects_bp,     url_prefix="/api/projects")
