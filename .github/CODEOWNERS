@@ -1,0 +1,6 @@
+# Changes to these files require explicit owner approval before merging.
+# This prevents CI checks, coverage thresholds, or linting rules from
+# being silently weakened — by a human or an AI.
+/.github/                  @ae0n1an
+/pyproject.toml            @ae0n1an
+/.pre-commit-config.yaml   @ae0n1an

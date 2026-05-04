@@ -9,12 +9,14 @@ line-length = 100
 
 [tool.ruff.lint]
 select = [
-    "E",    # pycodestyle errors
-    "W",    # pycodestyle warnings
-    "F",    # pyflakes (undefined names, unused imports, etc.)
-    "ANN",  # flake8-annotations — mandatory type hints on all functions
-    "UP",   # pyupgrade — use modern Python syntax
-    "I",    # isort — import ordering
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes (undefined names, unused imports, etc.)
+    "ANN",    # flake8-annotations — mandatory type hints on all functions
+    "UP",     # pyupgrade — use modern Python syntax
+    "I",      # isort — import ordering
+    "PGH",    # pygrep-hooks — ban blanket `type: ignore` and `noqa` without a code
+    "RUF100", # flag `# noqa` directives that suppress nothing (i.e. are unnecessary)
 ]
 
 
