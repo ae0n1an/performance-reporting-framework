@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}PerfLab{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+
+      <!-- Brand -->
+      <a href="/" class="brand" aria-label="PerfLab home">
+        <svg class="brand-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect x="2"  y="14" width="4" height="8" rx="1" fill="currentColor"/>
+          <rect x="8"  y="9"  width="4" height="13" rx="1" fill="currentColor"/>
+          <rect x="14" y="5"  width="4" height="17" rx="1" fill="currentColor"/>
+          <rect x="20" y="1"  width="2" height="21" rx="1" fill="currentColor" opacity=".4"/>
+        </svg>
+        <span class="brand-name">PerfLab</span>
+      </a>
+
+      <!-- Breadcrumbs -->
+      {% if breadcrumbs %}
+      <nav class="breadcrumbs" aria-label="Breadcrumb">
+        <ol>
+          {% for crumb in breadcrumbs %}
+          <li>
+            {% if crumb.url %}
+              <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+            {% else %}
+              <span aria-current="page">{{ crumb.label }}</span>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ol>
+      </nav>
+      {% endif %}
+
+      <!-- Project selector -->
+      <div class="project-selector" id="projectSelector">
+        <button
+          class="project-selector__trigger"
+          id="projectSelectorBtn"
+          aria-haspopup="listbox"
+          aria-expanded="false"
+          aria-controls="projectSelectorMenu"
+        >
+          {% if current_project %}
+            <span class="project-selector__label">{{ current_project.name }}</span>
+          {% else %}
+            <span class="project-selector__label project-selector__label--placeholder">Select project</span>
+          {% endif %}
+          <svg class="chevron" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <ul
+          class="project-selector__menu"
+          id="projectSelectorMenu"
+          role="listbox"
+          aria-label="Projects"
+          hidden
+        >
+          {% if all_projects %}
+            {% for project in all_projects %}
+            <li role="option" aria-selected="{% if current_project and current_project.id == project.id %}true{% else %}false{% endif %}">
+              <a href="/?project={{ project.id }}">{{ project.name }}</a>
+            </li>
+            {% endfor %}
+            <li class="project-selector__divider" role="separator"></li>
+            <li role="option" aria-selected="false">
+              <a href="/projects/new" class="project-selector__new">+ New project</a>
+            </li>
+          {% else %}
+            <li class="project-selector__empty">No projects yet</li>
+            <li role="option" aria-selected="false">
+              <a href="/projects/new" class="project-selector__new">+ New project</a>
+            </li>
+          {% endif %}
+        </ul>
+      </div>
+
+    </div>
+  </header>
+
+  <main class="page-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

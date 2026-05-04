@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}New project — PerfLab{% endblock %}
+
+{% block content %}
+<div class="form-page">
+  <div class="form-card">
+    <h1 class="form-card__title">New project</h1>
+    <p class="form-card__subtitle">Projects group related performance tests together.</p>
+
+    <form method="post" action="/projects/new" novalidate class="form" id="newProjectForm">
+
+      <div class="field {% if errors.name %}field--error{% endif %}">
+        <label class="field__label" for="name">Name <span class="field__required" aria-hidden="true">*</span></label>
+        <input
+          class="field__input"
+          type="text"
+          id="name"
+          name="name"
+          value="{{ values.name | default('') }}"
+          placeholder="e.g. Checkout API"
+          autocomplete="off"
+          autofocus
+          required
+        />
+        {% if errors.name %}
+        <p class="field__error" role="alert">{{ errors.name }}</p>
+        {% endif %}
+      </div>
+
+      <div class="field {% if errors.slug %}field--error{% endif %}">
+        <label class="field__label" for="slug">
+          Slug <span class="field__required" aria-hidden="true">*</span>
+          <span class="field__hint">Used in URLs — lowercase, numbers, hyphens</span>
+        </label>
+        <input
+          class="field__input field__input--mono"
+          type="text"
+          id="slug"
+          name="slug"
+          value="{{ values.slug | default('') }}"
+          placeholder="e.g. checkout-api"
+          autocomplete="off"
+          pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+        />
+        {% if errors.slug %}
+        <p class="field__error" role="alert">{{ errors.slug }}</p>
+        {% endif %}
+      </div>
+
+      <div class="field">
+        <label class="field__label" for="description">
+          Description
+          <span class="field__hint">Optional</span>
+        </label>
+        <textarea
+          class="field__input field__textarea"
+          id="description"
+          name="description"
+          rows="3"
+          placeholder="What does this project test?"
+        >{{ values.description | default('') }}</textarea>
+      </div>
+
+      <div class="form-actions">
+        <a href="/" class="btn btn--ghost">Cancel</a>
+        <button type="submit" class="btn btn--primary">Create project</button>
+      </div>
+
+    </form>
+  </div>
+</div>
+{% endblock %}

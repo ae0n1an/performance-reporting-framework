@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}PerfLab — Home{% endblock %}
+
+{% block content %}
+<div class="home">
+  <div class="home__header">
+    <h1 class="home__title">Projects</h1>
+    <a href="/projects/new" class="btn btn--primary">New project</a>
+  </div>
+
+  {% if projects %}
+  <ul class="project-grid" aria-label="Recent projects">
+    {% for project in projects %}
+    <li class="project-card">
+      <a href="/projects/{{ project.id }}" class="project-card__link">
+        <div class="project-card__icon" aria-hidden="true">
+          {{ project.name[0] | upper }}
+        </div>
+        <div class="project-card__body">
+          <h2 class="project-card__name">{{ project.name }}</h2>
+          <p class="project-card__slug">{{ project.slug }}</p>
+          {% if project.description %}
+          <p class="project-card__description">{{ project.description }}</p>
+          {% endif %}
+        </div>
+        <time class="project-card__date" datetime="{{ project.created_at.isoformat() }}">
+          {{ project.created_at | format_date }}
+        </time>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-state__icon" aria-hidden="true">
+      <svg viewBox="0 0 64 64" fill="none">
+        <rect x="6"  y="36" width="10" height="22" rx="2" fill="var(--accent)" opacity=".3"/>
+        <rect x="20" y="24" width="10" height="34" rx="2" fill="var(--accent)" opacity=".5"/>
+        <rect x="34" y="14" width="10" height="44" rx="2" fill="var(--accent)" opacity=".7"/>
+        <rect x="48" y="6"  width="10" height="52" rx="2" fill="var(--accent)"/>
+      </svg>
+    </div>
+    <h2 class="empty-state__heading">No projects yet</h2>
+    <p class="empty-state__body">
+      Create your first project to start recording performance test results.
+    </p>
+    <a href="/projects/new" class="btn btn--primary btn--lg">Create your first project</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
